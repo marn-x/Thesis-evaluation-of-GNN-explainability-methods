@@ -1,0 +1,94 @@
+# ---------------------------------------------------------------------------
+# SQ4 experiment configuration.
+#
+# Every value that could reasonably change lives here, not in the code.
+# Environment variables prefixed with SQ4_ override these (see config.py),
+# e.g. SQ4_TRAINING__EPOCHS=50 uv run sq4 train
+# ---------------------------------------------------------------------------
+
+[paths]
+data_root = "data"
+artifact_root = "artifacts"
+log_file = "artifacts/sq4.log"
+
+[logging]
+level = "INFO"
+rotation = "10 MB"
+retention = "30 days"
+
+# ---------------------------------------------------------------------------
+# Data. Split follows Weber et al. (2019), arXiv:1908.02591, Section 4:
+# first 34 time steps train, last 15 test, inductive.
+# ---------------------------------------------------------------------------
+[data]
+num_timesteps = 49
+train_timesteps_end = 34
+# The paper describes 166 node features (94 local incl. time step, 72
+# aggregated). PyG's EllipticBitcoinDataset reports 165. The loader records
+# whichever it finds and warns on mismatch.
+expected_num_features = 165
+# Time step at which the dark market shutdown occurs (paper, Section 4).
+# Used only to annotate the per-timestep report.
+dark_market_shutdown_timestep = 43
+
+# ---------------------------------------------------------------------------
+# Model. Hyperparameters taken from Weber et al. (2019), Section 4.
+# Deliberately NOT tuned: the classifier is held at published settings so
+# that model performance is not a variable in SQ4.
+# ---------------------------------------------------------------------------
+[model]
+architecture = "skipgcn"   # "gcn" | "skipgcn"
+hidden_channels = 100
+num_layers = 2
+dropout = 0.0
+
+[training]
+epochs = 1000
+learning_rate = 0.001
+weight_decay = 0.0
+class_weights = [0.3, 0.7]  # [licit, illicit], paper Section 4
+seed = 42
+log_every = 50
+# Sanity gate: refuse to run explanations on a classifier that failed.
+# Weber et al. report illicit F1 = 0.628 for GCN.
+min_illicit_f1 = 0.45
+
+# ---------------------------------------------------------------------------
+# Explanation experiment.
+# ---------------------------------------------------------------------------
+[explain]
+# Registered method names; see sq4_explain.explainers.
+methods = ["gnnexplainer", "shap_sampled", "shap_exact"]
+# Nodes to explain: sampled from test-set nodes the model predicts illicit.
+num_nodes = 30
+node_sample_seed = 7
+# Repeated runs per node, for the R4 reproducibility measurement.
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+num_hops = 2
+# Fixed sparsity for all fidelity comparisons. Yuan et al. (2023) warn that
+# Fidelity+ is only comparable between methods at matched sparsity.
+top_k = 10
+# Groups to treat as "the explanation" when comparing at group granularity.
+top_k_groups = 3
+# Baseline used when a feature is "absent". "train_mean" | "zeros"
+baseline = "train_mean"
+
+[explain.gnnexplainer]
+epochs = 200
+learning_rate = 0.01
+
+[explain.shap_sampled]
+n_samples = 200
+# PyG mask type. "common_attributes" gives one score per feature column,
+# which is what makes it comparable to shap_exact. Fall back to
+# "attributes" (and aggregate) if the current PyG version rejects it.
+node_mask_type = "attributes"
+
+[explain.shap_exact]
+# Players in the coalitional game. Features are partitioned into this many
+# groups so that exact Shapley values are computable: 2^num_groups
+# coalitions. 12 groups = 4096 forward passes per explanation.
+num_groups = 12
+# "contiguous" keeps the paper's local/aggregated feature ordering intact.
+grouping = "contiguous"
+batch_size = 256
