@@ -99,12 +99,18 @@ def command_report(args: argparse.Namespace) -> None:
         runtime_s_max=("runtime_s", "max"),
         fidelity_plus_mean=("fidelity_plus", "mean"),
         fidelity_minus_mean=("fidelity_minus", "mean"),
+        group_fidelity_plus_mean=("group_fidelity_plus", "mean"),
+        group_fidelity_minus_mean=("group_fidelity_minus", "mean"),
         explanations=("node_index", "count"),
     )
     stability = consistency_frame.groupby("method").agg(
         jaccard_mean=("mean_jaccard", "mean"),
         jaccard_worst=("min_jaccard", "min"),
         spearman_mean=("mean_spearman", "mean"),
+        group_jaccard_mean=("group_mean_jaccard", "mean"),
+        group_jaccard_worst=("group_min_jaccard", "min"),
+        group_spearman_mean=("group_mean_spearman", "mean"),
+        max_deviation=("max_abs_deviation", "max")
     )
     summary = per_method.join(stability)
     destination = root / "summary.csv"

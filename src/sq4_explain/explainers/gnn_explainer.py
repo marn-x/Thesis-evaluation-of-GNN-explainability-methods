@@ -17,6 +17,7 @@ from torch import Tensor, nn
 from torch_geometric.data import Data
 from torch_geometric.explain import Explainer, GNNExplainer
 from torch_geometric.explain.config import ModelConfig
+from torch_geometric.utils import k_hop_subgraph
 
 from sq4_explain.config import Settings
 from sq4_explain.explainers.base import (
@@ -58,18 +59,30 @@ class GNNExplainerRunner(NodeExplainer):
         )
 
     def explain(self, node_index: int, seed: int | None = None) -> ExplanationResult:
-        """Optimise soft masks for ``node_index`` and reduce them to per-feature scores."""
+        """Optimise soft masks on the k-hop subgraph, reduced to per-feature scores.
+
+        The subgraph rather than the full graph, for two reasons: it is the
+        context both SHAP arms use, so the three methods stay comparable, and
+        it shrinks the optimised mask from [num_nodes, F] to [num_sub, F].
+        """
         if seed is not None:
             seed_everything(seed)
         started = time.perf_counter()
+        subset, edge_index, mapping, _ = k_hop_subgraph(
+            int(node_index),
+            num_hops=self._settings.explain.num_hops,
+            edge_index=self._data.edge_index,
+            relabel_nodes=True,
+            num_nodes=self._data.num_nodes,
+        )
         explanation = self._explainer(
-            self._data.x, self._data.edge_index, index=int(node_index)
+            self._data.x[subset], edge_index, index=int(mapping[0])
         )
         runtime = time.perf_counter() - started
 
         node_mask: Tensor = explanation.get("node_mask")
-        # node_mask is [num_nodes, num_features]; the rubric compares methods at
-        # the feature level, so collapse the node axis by summing contributions.
+        # node_mask is [num_sub_nodes, num_features]; the rubric compares methods
+        # at the feature level, so collapse the node axis by summing contributions.
         feature_attribution = node_mask.abs().sum(dim=0).detach().cpu()
         edge_mask = explanation.get("edge_mask")
         return ExplanationResult(
@@ -82,6 +95,7 @@ class GNNExplainerRunner(NodeExplainer):
             metadata={
                 "epochs": self._settings.explain.gnnexplainer.epochs,
                 "lr": self._settings.explain.gnnexplainer.learning_rate,
+                "subgraph_nodes": int(subset.numel()),
             },
         )
 

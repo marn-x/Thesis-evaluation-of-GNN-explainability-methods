@@ -6,5 +6,6 @@ __pycache__/
 .pytest_cache/
 data/
 artifacts/
+artifacts*/
 *.log
 .DS_Store

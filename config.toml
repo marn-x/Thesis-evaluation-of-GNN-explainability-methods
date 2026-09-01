@@ -64,7 +64,10 @@ num_nodes = 30
 node_sample_seed = 7
 # Repeated runs per node, for the R4 reproducibility measurement.
 seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-num_hops = 2
+# Must exceed model.num_layers. A GCN's symmetric normalisation needs each
+# node's true degree, and an L-hop induced subgraph truncates the degrees of
+# its boundary nodes, changing the prediction. L+1 hops restores them.
+num_hops = 3
 # Fixed sparsity for all fidelity comparisons. Yuan et al. (2023) warn that
 # Fidelity+ is only comparable between methods at matched sparsity.
 top_k = 10
@@ -72,12 +75,16 @@ top_k = 10
 top_k_groups = 3
 # Baseline used when a feature is "absent". "train_mean" | "zeros"
 baseline = "train_mean"
+# Run deterministic methods under every seed as well, to demonstrate seed
+# invariance empirically rather than asserting it from the implementation.
+verify_determinism = true
 
 [explain.gnnexplainer]
 epochs = 200
 learning_rate = 0.01
 
 [explain.shap_sampled]
+# Was 200 in previous run, far too slow
 n_samples = 200
 # PyG mask type. "common_attributes" gives one score per feature column,
 # which is what makes it comparable to shap_exact. Fall back to

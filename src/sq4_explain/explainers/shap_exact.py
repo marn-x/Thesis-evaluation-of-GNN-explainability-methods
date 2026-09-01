@@ -35,6 +35,7 @@ from torch_geometric.utils import k_hop_subgraph
 
 from sq4_explain.config import Settings
 from sq4_explain.data import ILLICIT_CLASS, feature_baseline
+from sq4_explain.runtime import seed_everything
 from sq4_explain.explainers.base import (
     ExplanationResult,
     NodeExplainer,
@@ -133,12 +134,12 @@ class ExactShapRunner(NodeExplainer):
         self._baseline = feature_baseline(data, settings.explain.baseline).to(device)
 
     def explain(self, node_index: int, seed: int | None = None) -> ExplanationResult:
-        """Compute exact group-level Shapley values for ``node_index``.
-
-        The ``seed`` argument is accepted to satisfy the common contract and is
-        ignored: this method has no stochastic component, which is the property
-        under test.
-        """
+        # Seeded deliberately, though nothing here draws from the RNG. If the
+        # attributions still match across seeds, that invariance is measured
+        # rather than assumed, and any hidden nondeterminism (cuDNN kernel
+        # selection, GPU reduction order) would show up as a difference.
+        if seed is not None:
+            seed_everything(seed)
         started = time.perf_counter()
         subset, edge_index, mapping, _ = k_hop_subgraph(
             int(node_index),
@@ -164,7 +165,7 @@ class ExactShapRunner(NodeExplainer):
         return ExplanationResult(
             method=self.name,
             node_index=int(node_index),
-            seed=None,
+            seed=seed,
             feature_attribution=self._expand_to_features(group_attribution),
             runtime_s=runtime,
             metadata={

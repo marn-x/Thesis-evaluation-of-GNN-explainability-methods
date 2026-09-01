@@ -138,6 +138,7 @@ class ConsistencyScores:
     mean_jaccard: float
     min_jaccard: float
     mean_spearman: float
+    max_abs_deviation: float
 
 
 def consistency(results: list[ExplanationResult], top_k: int) -> ConsistencyScores:
@@ -158,7 +159,7 @@ def consistency(results: list[ExplanationResult], top_k: int) -> ConsistencyScor
     method = results[0].method
     node_index = results[0].node_index
     if len(results) == 1:
-        return ConsistencyScores(node_index, method, 1, 1.0, 1.0, 1.0)
+        return ConsistencyScores(node_index, method, 1, 1.0, 1.0, 1.0, 0.0)
 
     jaccards: list[float] = []
     correlations: list[float] = []
@@ -169,6 +170,10 @@ def consistency(results: list[ExplanationResult], top_k: int) -> ConsistencyScor
         correlations.append(
             rank_correlation(left.feature_attribution, right.feature_attribution)
         )
+        deviations = [
+            float((left.feature_attribution - right.feature_attribution).abs().max())
+            for left, right in combinations(results, 2)
+        ]
     return ConsistencyScores(
         node_index=node_index,
         method=method,
@@ -176,5 +181,48 @@ def consistency(results: list[ExplanationResult], top_k: int) -> ConsistencyScor
         mean_jaccard=sum(jaccards) / len(jaccards),
         min_jaccard=min(jaccards),
         mean_spearman=sum(correlations) / len(correlations),
+        max_abs_deviation=max(deviations)
     )
 
+@torch.no_grad()
+def group_fidelity(
+    model: nn.Module,
+    data: Data,
+    node_index: int,
+    attribution: Tensor,
+    groups: list[list[int]],
+    baseline: Tensor,
+    top_k_groups: int,
+) -> FidelityScores:
+    """Fidelity measured by masking whole feature groups.
+
+    Feature-level fidelity is unusable for the SHAP arms: attributions are
+    constant within a group, so topk breaks ties arbitrarily and the score
+    swings by orders of magnitude depending on which tied members it picks.
+    """
+    model.eval()
+    device = data.x.device
+    grouped = to_groups(attribution, groups)
+    chosen = torch.topk(grouped.abs(), k=top_k_groups).indices.tolist()
+    columns = torch.as_tensor(
+        [column for index in chosen for column in groups[index]], device=device
+    )
+    baseline = baseline.to(device)
+
+    def probability(features: Tensor) -> float:
+        logits = model(features, data.edge_index)
+        return float(logits[node_index].softmax(dim=-1)[ILLICIT_CLASS])
+
+    original = probability(data.x)
+    without = data.x.clone()
+    without[:, columns] = baseline[columns]
+    only = data.x.clone()
+    complement = torch.ones(data.num_features, dtype=torch.bool, device=device)
+    complement[columns] = False
+    only[:, complement] = baseline[complement]
+
+    return FidelityScores(
+        fidelity_plus=abs(original - probability(without)),
+        fidelity_minus=abs(original - probability(only)),
+        sparsity=1.0 - columns.numel() / int(data.num_features),
+    )

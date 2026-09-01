@@ -14,7 +14,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ENV_PREFIX = "SQ4_"
 NESTED_DELIMITER = "__"
@@ -119,6 +119,7 @@ class ExplainSettings(BaseModel):
     num_nodes: int = 30
     node_sample_seed: int = 7
     seeds: list[int] = Field(default_factory=lambda: [0, 1, 2])
+    verify_determinism: bool = True
     num_hops: int = 2
     top_k: int = 10
     top_k_groups: int = 3
@@ -150,6 +151,18 @@ class Settings(BaseModel):
     model: ModelSettings = ModelSettings()
     training: TrainingSettings = TrainingSettings()
     explain: ExplainSettings = ExplainSettings()
+
+    @model_validator(mode="after")
+    def _hops_cover_receptive_field(self) -> Settings:
+        """Reject a subgraph radius that would alter the model's own output."""
+        if self.explain.num_hops <= self.model.num_layers:
+            msg = (
+                f"explain.num_hops ({self.explain.num_hops}) must exceed "
+                f"model.num_layers ({self.model.num_layers}); an L-hop subgraph "
+                "truncates boundary-node degrees and changes the prediction."
+            )
+            raise ValueError(msg)
+        return self
 
 
 def _coerce(raw: str) -> Any:

@@ -22,11 +22,14 @@ from loguru import logger
 from torch import Tensor, nn
 from tqdm import tqdm
 
+from torch_geometric.data import Data
+from torch_geometric.utils import k_hop_subgraph
+
 from sq4_explain.config import Settings
 from sq4_explain.data import ILLICIT_CLASS, EllipticBundle, feature_baseline
 from sq4_explain.explainers import build_explainer
 from sq4_explain.explainers.base import ExplanationResult
-from sq4_explain.metrics import consistency, fidelity
+from sq4_explain.metrics import consistency, fidelity, group_fidelity
 
 EXPLANATIONS_FILE = "explanations.csv"
 CONSISTENCY_FILE = "consistency.csv"
@@ -89,7 +92,26 @@ class ExplanationExperiment:
             name: build_explainer(name, model, bundle.data, settings, device)
             for name in settings.explain.methods
         }
+        self._views: dict[int, tuple[Data, int]] = {}
         logger.info("Methods under test: {}", ", ".join(self._explainers))
+
+    def _local_view(self, node: int) -> tuple[Data, int]:
+        """Return the k-hop subgraph around ``node`` and its index within it.
+
+        Exactly equivalent to the full graph for fidelity purposes, provided
+        num_hops exceeds the layer count, and orders of magnitude cheaper.
+        """
+        if node not in self._views:
+            subset, edge_index, mapping, _ = k_hop_subgraph(
+                node,
+                num_hops=self._settings.explain.num_hops,
+                edge_index=self._bundle.data.edge_index,
+                relabel_nodes=True,
+                num_nodes=self._bundle.data.num_nodes,
+            )
+            view = Data(x=self._bundle.data.x[subset], edge_index=edge_index)
+            self._views[node] = (view, int(mapping[0]))
+        return self._views[node]
 
     def run(self, nodes: Tensor) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         """Explain every node with every method under every seed.
@@ -139,8 +161,14 @@ class ExplanationExperiment:
         return pd.DataFrame(rows), pd.DataFrame(consistency_rows), attributions
 
     def _seeds_for(self, deterministic: bool) -> list[int | None]:
-        """Deterministic methods run once; stochastic ones run over every seed."""
-        if deterministic:
+        """Choose the seeds a method runs under.
+
+        A deterministic method normally runs once, since repeats would be
+        identical. When verify_determinism is set it runs under the full seed
+        list instead, so that its invariance is measured on the same footing
+        as the other methods rather than asserted from the implementation.
+        """
+        if deterministic and not self._settings.explain.verify_determinism:
             return [None]
         return list(self._settings.explain.seeds)
 
@@ -149,17 +177,30 @@ class ExplanationExperiment:
     ) -> ExplanationResult:
         """Produce one explanation and attach its fidelity scores."""
         result: ExplanationResult = explainer.explain(node, seed)  # type: ignore[attr-defined]
+        view, local_index = self._local_view(node)
         scores = fidelity(
             self._model,
-            self._bundle.data,
-            node,
+            view,
+            local_index,
             result.feature_attribution,
             self._baseline,
             self._settings.explain.top_k,
         )
+        scores_group = group_fidelity(
+            self._model,
+            view,
+            local_index,
+            result.feature_attribution,
+            self._groups,
+            self._baseline,
+            self._settings.explain.top_k_groups,
+        )
         result.metadata["fidelity_plus"] = scores.fidelity_plus
         result.metadata["fidelity_minus"] = scores.fidelity_minus
         result.metadata["sparsity"] = scores.sparsity
+        result.metadata["group_fidelity_plus"] = scores_group.fidelity_plus
+        result.metadata["group_fidelity_minus"] = scores_group.fidelity_minus
+        result.metadata["group_sparsity"] = scores_group.sparsity
         return result
 
     def _to_row(self, result: ExplanationResult) -> dict:
@@ -173,6 +214,9 @@ class ExplanationExperiment:
             "fidelity_plus": result.metadata.get("fidelity_plus"),
             "fidelity_minus": result.metadata.get("fidelity_minus"),
             "sparsity": result.metadata.get("sparsity"),
+            "group_fidelity_plus": result.metadata.get("group_fidelity_plus"),
+            "group_fidelity_minus": result.metadata.get("group_fidelity_minus"),
+            "group_sparsity": result.metadata.get("group_sparsity"),
             "top_features": ",".join(
                 str(index) for index in result.top_k_features(top_k).tolist()
             ),

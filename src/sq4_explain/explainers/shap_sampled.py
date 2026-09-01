@@ -37,7 +37,7 @@ import torch
 from captum.attr import ShapleyValueSampling
 from loguru import logger
 from torch import Tensor, nn
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Batch
 from torch_geometric.utils import k_hop_subgraph
 
 from sq4_explain.config import Settings
@@ -121,18 +121,16 @@ class SampledShapRunner(NodeExplainer):
         self._model.eval()
 
         def forward(batch: Tensor) -> Tensor:
-            """Value function: the illicit-class logit for the target node.
-
-            Logits rather than probabilities, because probabilities are bounded
-            and compress differences near the decision boundary.
-            """
+            """Value function: the illicit-class logit for the target node."""
             with torch.no_grad():
-                return torch.stack(
-                    [
-                        self._model(sample, edge_index)[target, ILLICIT_CLASS]
-                        for sample in batch
-                    ]
+                merged = Batch.from_data_list(
+                    [Data(x=sample, edge_index=edge_index) for sample in batch]
                 )
+                logits = self._model(merged.x, merged.edge_index)
+                offsets = (
+                    torch.arange(batch.size(0), device=self._device) * sub_x.size(0)
+                )
+                return logits[offsets + target, ILLICIT_CLASS]
 
         # A player is a feature group shared across every node of the subgraph,
         # matching how shap_exact masks columns.
