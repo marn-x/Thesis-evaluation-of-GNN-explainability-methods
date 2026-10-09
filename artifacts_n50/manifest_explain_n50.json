@@ -1,0 +1,125 @@
+{
+  "created_utc": "2026-08-10T09:22:59+00:00",
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Linux-7.1.5-201.fc44.x86_64-x86_64-with-glibc2.43",
+    "torch": "2.13.0+cu130",
+    "torch_geometric": "2.8.0.post1",
+    "captum": "0.9.0",
+    "numpy": "2.5.1",
+    "scipy": "1.18.0"
+  },
+  "settings": {
+    "paths": {
+      "data_root": "/home/marnix/SynologyDrive/Applied Data Science/Thesis/thesis-sq4/data",
+      "artifact_root": "/home/marnix/SynologyDrive/Applied Data Science/Thesis/thesis-sq4/artifacts",
+      "log_file": "/home/marnix/SynologyDrive/Applied Data Science/Thesis/thesis-sq4/artifacts/sq4.log"
+    },
+    "logging": {
+      "level": "INFO",
+      "rotation": "10 MB",
+      "retention": "30 days"
+    },
+    "data": {
+      "num_timesteps": 49,
+      "train_timesteps_end": 34,
+      "expected_num_features": 165,
+      "dark_market_shutdown_timestep": 43
+    },
+    "model": {
+      "architecture": "skipgcn",
+      "hidden_channels": 100,
+      "num_layers": 2,
+      "dropout": 0.0
+    },
+    "training": {
+      "epochs": 1000,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0,
+      "class_weights": [
+        0.3,
+        0.7
+      ],
+      "seed": 42,
+      "log_every": 50,
+      "min_illicit_f1": 0.45
+    },
+    "explain": {
+      "methods": [
+        "gnnexplainer",
+        "shap_sampled",
+        "shap_exact"
+      ],
+      "num_nodes": 30,
+      "node_sample_seed": 7,
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "verify_determinism": true,
+      "num_hops": 3,
+      "top_k": 10,
+      "top_k_groups": 3,
+      "baseline": "train_mean",
+      "gnnexplainer": {
+        "epochs": 200,
+        "learning_rate": 0.01
+      },
+      "shap_sampled": {
+        "n_samples": 50,
+        "node_mask_type": "attributes"
+      },
+      "shap_exact": {
+        "num_groups": 12,
+        "grouping": "contiguous",
+        "batch_size": 256
+      }
+    }
+  },
+  "nodes": [
+    136551,
+    170429,
+    150888,
+    160689,
+    154039,
+    201916,
+    174769,
+    156014,
+    153009,
+    138359,
+    152136,
+    137831,
+    150802,
+    141885,
+    202292,
+    169364,
+    143000,
+    156901,
+    170917,
+    167298,
+    143208,
+    164192,
+    138377,
+    168076,
+    199096,
+    194140,
+    153891,
+    155552,
+    170111,
+    153011
+  ],
+  "device": "cuda",
+  "registered_methods": [
+    "gnnexplainer",
+    "shap_exact",
+    "shap_sampled"
+  ]
+}

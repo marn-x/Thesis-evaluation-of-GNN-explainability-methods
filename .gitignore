@@ -4,8 +4,6 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-data/
-artifacts/
-artifacts*/
+data/elliptic/
 *.log
 .DS_Store
